@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:validation="http://www.mulesoft.org/schema/mule/validation" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd">
+	<salesforce:sfdc-config name="Salesforce_Config" doc:name="Salesforce Config" doc:id="85ff6391-9584-492d-b874-f398e9c6cc96" >
+		<salesforce:basic-connection username="xxx" password="xxxx" securityToken="ixwPVN5V23GG0kwC5nhrHq9Xc" />
+	</salesforce:sfdc-config>
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="ab035906-779e-401b-8e5f-c389cd036a30" >
+		<http:listener-connection host="0.0.0.0" port="8081" />
+	</http:listener-config>
+	<validation:config name="Validation_Config" doc:name="Validation Config" doc:id="7cbc4124-2837-4a4e-a4bc-9063b4fc4bc2" />
+	<flow name="salesforce_mongodb_migrationFlow" doc:id="6b36390f-9edf-4340-9825-f762c498bc6a" >
+		<http:listener doc:name="GET /accounts" doc:id="57ba574a-01f6-4df3-a79e-ae80336e4c2e" config-ref="HTTP_Listener_config" path="/accounts/{objectName}"/>
+		<set-variable value="#[attributes.uriParams.objectName]" doc:name="Set Variable objectName" doc:id="6bf6c90a-265b-40ab-b71b-47c944522297" variableName="objectName"/>
+		<validation:is-true doc:id="5394c9b3-dd82-4e0a-8e7a-9269a0358524" config-ref="Validation_Config" expression='#[["student"]contains vars.objectName]' message="INVALID OBJECT NAME"/>
+		<ee:transform doc:name="Assign SQL Query and Process Flow Name" doc:id="eb91cf4a-090d-4f28-ab35-4dab04f31781" >
+			<ee:message >
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="processFlowName" ><![CDATA[%dw 2.0
+output application/java
+fun assignFlow(e) = e match {
+	case is "student" -> "insert-student-flow"
+	case is "account" -> "insert-account-flow"
+	case is "contact" -> "insert-contact-flow"
+	else -> "INVALID OBJECT NAME"
+}
+---
+assignFlow(vars.objectName)]]></ee:set-variable>
+				<ee:set-variable variableName="sqlQuery" ><![CDATA[%dw 2.0
+output application/java
+fun assignFlow(e) = e match {
+	case is "student" -> "${file::sql/Student__c/select-from-salesforce.sql}"
+	case is "contact" -> "${file::sql/Contact/select-from-salesforce.sql}"
+	case is "account" -> "${file::sql/Account/select-from-salesforce.sql}"
+	else -> "INVALID OBJECT NAME"
+}
+---
+assignFlow(vars.objectName)]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<salesforce:create-job-bulk-api-v2 doc:name="Create job bulk api v 2" doc:id="137da2a2-ab4e-4e25-9f23-89c0493277ab" config-ref="Salesforce_Config"/>
+		<salesforce:query-all doc:name="Get All Students from SalesForce" doc:id="e509f069-c179-40e9-98f2-a5083b1b31ec" config-ref="Salesforce_Config">
+			<salesforce:salesforce-query ><![CDATA[SELECT Address__c, Class_Enrolled__c, Email__c, Phone_Number__c, School__c, Student_Name__c from Student__c limit 10]]></salesforce:salesforce-query>
+		</salesforce:query-all>
+		<ee:transform doc:name="Transform Message" doc:id="a6d80c59-a9f4-44c8-8a25-04f0e8c22cc2" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload
+]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+	<flow name="salesforce_mongodb_migrationFlow1" doc:id="f949d7be-1f0d-47cc-926d-f6497ac9839e" >
+		<logger level="INFO" doc:name="Logger" doc:id="b9c25380-edea-47c6-9150-d9d21b429561" message='#["&gt;&gt;&gt;&gt; BATCH PROCESSING START FOR " ++ vars.objectName]'/>
+	</flow>
+</mule>
